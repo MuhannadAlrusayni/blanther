@@ -1,5 +1,5 @@
-use actix_web::{post, web, App, HttpServer, error, HttpResponse};
-use actix_web::web::Data;
+use actix_web::web::{Data, Json};
+use actix_web::{error, post, web, App, HttpResponse, HttpServer};
 use sqlx::{Pool, Postgres};
 use std::error::Error;
 
@@ -8,9 +8,8 @@ use database::user::{User, UserDB};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let url = "postgres://postgres:password@localhost/blanther";
-
-    let pool = connect(url).await?;
+    envmnt::load_file(&format!("{}/.env", env!("CARGO_MANIFEST_DIR")))?;
+    let pool = connect().await?;
 
     HttpServer::new(move || {
         App::new()
@@ -25,24 +24,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 #[post("/user")]
-async fn create_user(pool: web::Data<Pool<Postgres>>, user: web::Json<User>) -> Result<HttpResponse, Box<dyn Error>> {
-    let user = user.insert_user(pool.get_ref()).await;
+async fn create_user(
+    pool: web::Data<Pool<Postgres>>,
+    user: Json<User>,
+) -> Result<Json<User>, Box<dyn Error>> {
+    let user = user
+        .insert_user(pool.get_ref())
+        .await
+        .map_err(|_err| "Something went wrong!")?;
 
-    match user {
-        Ok(user) => {
-            let json = serde_json::to_string(&user);
-
-            match json {
-                Ok(json) => Ok(HttpResponse::Ok().json(json)),
-                Err(err) => {
-                    eprintln!("could not parse json: {}", err);
-                    Err(Box::new(error::ErrorBadRequest("something went wrong!")))
-                },
-            }
-        },
-        Err(err) => {
-            eprintln!("could not insert user: {}", err);
-            Err(Box::new(error::ErrorInternalServerError("something went wrong!")))
-        },
-    } 
+    Ok(Json(user))
 }
